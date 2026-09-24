@@ -1,0 +1,58 @@
+name: build-matrix
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# SECURITY: self-hosted runner on a PUBLIC repo. Only trusted code runs here:
+# push-to-main (push-restricted) + manual dispatch. pull_request is NOT wired.
+permissions:
+  contents: read
+
+concurrency:
+  group: build-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  godot:
+    name: Godot 4.5 matrix (import, smoke, export web)
+    runs-on: [self-hosted, macOS, X64]
+    timeout-minutes: 10
+    env:
+      # Pin the binary AND assert template pairing (4.5.1 <-> 4.5.1.stable;
+      # a mismatched templates dir silently exports broken builds).
+      GODOT_BIN: /Users/prajwalmendonca/tools/godot-4.5.1/Godot.app/Contents/MacOS/Godot
+      GODOT_REQUIRED: "1"
+      CI_COMMIT_REF_NAME: ${{ github.ref_name }}
+      CI_PIPELINE_IID: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert engine/template pairing
+        run: |
+          set -euo pipefail
+          TEMPLATES_DIR="$HOME/Library/Application Support/Godot/export_templates/4.5.1.stable"
+          test -x "$GODOT_BIN" || { echo "FAIL: GODOT_BIN missing"; exit 1; }
+          test -d "$TEMPLATES_DIR" || { echo "FAIL: 4.5.1.stable templates missing"; exit 1; }
+          "$GODOT_BIN" --version
+
+      # build_matrix.sh does its own gated preflight (headless import + smoke
+      # marker check), web+macos exports, payload budget, and verdicts.
+      # Any FAIL leg => exit 1. A zero-build green run is structurally impossible
+      # (godot legs are REQUIRED via GODOT_REQUIRED=1).
+      - name: Build matrix (import, smoke, export web+macos)
+        run: |
+          set -o pipefail
+          ./build_matrix.sh 2>&1 | tee matrix_output.log
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumenfall_main_${{ github.run_number }}
+          path: builds/lumenfall_main_${{ github.run_number }}/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Gate summary
+        if: always()
+        run: grep -E 'BUILD_MATRIX_RESULT|=PASS$|=FAIL$|=SKIP$' matrix_output.log | sort -u || true
