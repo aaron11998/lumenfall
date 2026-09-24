@@ -1,0 +1,18 @@
+# LUMENFALL UE5 scaffold — git hygiene (AGE-141)
+
+# Build system intermediates (UnrealBuildTool / IDE project gen)
+unreal/Binaries/
+unreal/Build/
+unreal/DerivedDataCache/
+unreal/Intermediate/
+unreal/Saved/
+unreal/.vs/
+unreal/*.sln
+unreal/*.xcworkspace
+unreal/*.xcdata
+
+# CI packaging output (RunUAT -archivedirectory)
+unreal/Builds/
+
+# Personal / local junk
+*.code-workspace

@@ -1,0 +1,17 @@
+{
+  "comment": "CI packaging config for the Lumenfall UE5 scaffold (AGE-141). Maps to `RunUAT BuildCookRun -project=<repo>/unreal/Lumenfall.uproject`. Wired for Windows first (GitHub-hosted fallback runs Windows-latest + shared runner disk; Mac self-build is deferred — see docs/AGE-141_unreal_ci_decision.md). No maps yet: package the default startup map so the gate proves cook+stage+archive end-to-end.",
+  "TargetName": "Lumenfall",
+  "Configuration": "Development",
+  "Build": "Always",
+  "Clean": false,
+  "Project": "unreal/Lumenfall.uproject",
+  "Platform": "Win64",
+  "CookAll": false,
+  "Map": "/Engine/Maps/Entry",
+  "StageDirectoryParam": "-stage -package -archive -archivedirectory=Builds/Unreal",
+  "Pak": true,
+  "Iterate": false,
+  "NoDebugCrashHandler": true,
+  "ServerConfig": "",
+  "ClientCopiesStagedFiles": true
+}

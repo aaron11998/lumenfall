@@ -1,0 +1,99 @@
+name: unreal-fallback
+
+# AGE-141 Unreal fallback leg — GitHub-HOSTED runner (NOT self-hosted).
+#
+# SECURITY / SCOPE (mirrors build-matrix.yml header):
+#   Runs on GitHub-hosted infra only. Manual dispatch today.
+#   NEVER wire a UE engine download into a pull_request-triggered workflow on
+#   this public repo — engine fetch happens only on push-to-main or dispatch
+#   from trusted refs. If a trusted containerized UE image becomes available,
+#   promote this job into build-matrix.yml's push-to-main path.
+#
+# WHY THIS EXISTS (docs/AGE-141_unreal_ci_decision.md §4):
+#   Self-hosted macOS leg is provision-blocked (Epic account gating; no agent
+#   can accept the EULA or join the EpicGames GitHub org). This fallback keeps
+#   the Unreal leg exercisable on hosted infra the moment a trusted engine
+#   source is wired via repo variables.
+#
+# HONEST-FAILURE CONTRACT:
+#   No engine source configured => this job FAILS LOUDLY with the unblock
+#   pointer. It never reports a fake green: a workflow that builds nothing
+#   must not look like a PASS (BUILD_MATRIX.md required-leg rule, applied to
+#   the Unreal leg).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unreal-fallback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unreal-windows:
+    name: UE 5.4 BuildCookRun (hosted Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      # Repo/org VARIABLES (not secrets — they are paths/URLs, and repo
+      # variables can be rotated without touching workflow code):
+      #   UE_ENGINE_SOURCE_URL  zip/tarball or git URL of engine+project bundle
+      #   UE_RUNUAT_RELPath     path to RunUAT.bat relative to engine root
+      UE_ENGINE_SOURCE_URL: ${{ vars.UE_ENGINE_SOURCE_URL }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preflight — engine source must be configured (fail loudly, never fake-green)
+        run: |
+          set -euo pipefail
+          if [ -z "${UE_ENGINE_SOURCE_URL}" ]; then
+            echo "FAIL: UE_ENGINE_SOURCE_URL repo variable is not set."
+            echo "Unblock (owner: Studio Operations, per docs/AGE-141_unreal_ci_decision.md):"
+            echo "  1) Provision Epic-linked engine source (EULA-accepted) at a URL this repo can fetch."
+            echo "  2) Set repo variable UE_ENGINE_SOURCE_URL to that URL."
+            echo "  3) Re-run this workflow. Until then the Unreal leg stays SKIP on self-hosted"
+            echo "     and this fallback job stays RED by design."
+            exit 1
+          fi
+
+      - name: Fetch engine bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/engine"
+          curl -fL --retry 3 -o "$RUNNER_TEMP/engine/engine.zip" "$UE_ENGINE_SOURCE_URL"
+          unzip -q "$RUNNER_TEMP/engine/engine.zip" -d "$RUNNER_TEMP/engine/unpacked"
+          echo "ENGINE_ROOT=$(find "$RUNNER_TEMP/engine/unpacked" -maxdepth 3 -type d -name 'UE_*' | head -1)" >> "$GITHUB_ENV"
+
+      - name: BuildCookRun package (exit 0 gate)
+        run: |
+          set -o pipefail
+          RUNUAT="$ENGINE_ROOT/Engine/Build/BatchFiles/RunUAT.bat"
+          test -f "$RUNUAT" || { echo "FAIL: RunUAT.bat not found under $ENGINE_ROOT"; exit 1; }
+          "$RUNUAT" BuildCookRun \
+            -project="$(pwd)/unreal/Lumenfall.uproject" \
+            -noP4 -noturnkey -platform=Win64 -clientconfig=Development \
+            -build -cook -stage -package -archive \
+            -archivedirectory="$(pwd)/unreal/Builds/CI" \
+            -utf8output 2>&1 | tee unreal_buildcookrun.log
+
+      - name: Gate — packaged artifact + error scan
+        run: |
+          set -euo pipefail
+          PAKS=$(find unreal/Builds/CI -name '*.pak' 2>/dev/null | wc -l)
+          [ "$PAKS" -gt 0 ] || { echo "FAIL: no staged .pak artifact"; exit 1; }
+          if grep -E '^(ERROR|LogStreaming: Error|LogCook: Error)' unreal_buildcookrun.log; then
+            echo "FAIL: BuildCookRun log has errors"; exit 1
+          fi
+          echo "unreal=PASS ($PAKS pak file(s))"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumenfall_unreal_${{ github.run_number }}
+          path: unreal/Builds/CI/
+          retention-days: 14
+          if-no-files-found: error

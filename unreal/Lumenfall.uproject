@@ -1,0 +1,26 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.4",
+  "Category": "",
+  "Description": "LUMENFALL — Unreal 5.x prototype scaffold (AGE-141). Minimal, CI-first: no maps, no Blueprints, no assets. Exists so BuildCookRun has a real .uproject to package and the `unreal` leg can flip from SKIP to PASS once a UE 5.4 toolchain lands. See docs/AGE-141_unreal_ci_decision.md.",
+  "Modules": [
+    {
+      "Name": "Lumenfall",
+      "Type": "Runtime",
+      "LoadingPhase": "Default",
+      "AdditionalDependencies": [
+        "Engine",
+        "CoreUObject"
+      ]
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "ModelingToolsEditorMode",
+      "Enabled": true,
+      "TargetAllowList": [
+        "Editor"
+      ]
+    }
+  ]
+}
