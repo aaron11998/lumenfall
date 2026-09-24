@@ -1,0 +1,28 @@
+# Unity artifacts — never commit generated state
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Never ignore version-controlled Unity metadata
+!/[Aa]ssets/**/*.meta
+
+# IDE cruft
+.idea/
+.vs/
+.vscode/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.suo
+*.swp
+
+# OS cruft
+.DS_Store

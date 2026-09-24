@@ -25,6 +25,10 @@ jobs:
       GODOT_REQUIRED: "1"
       CI_COMMIT_REF_NAME: ${{ github.ref_name }}
       CI_PIPELINE_IID: ${{ github.run_number }}
+      # AGE-140: this job owns the godot + design-token legs only (unity job
+      # below owns unity). token_gate MUST ride along: its exports are consumed
+      # by the web/macos bundles and it is leg-gated like the engines.
+      LEGS: godot,token_gate
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +56,62 @@ jobs:
           path: builds/lumenfall_main_${{ github.run_number }}/
           retention-days: 14
           if-no-files-found: error
+
+      - name: Gate summary
+        if: always()
+        run: grep -E 'BUILD_MATRIX_RESULT|=PASS$|=FAIL$|=SKIP$' matrix_output.log | sort -u || true
+
+  # AGE-140: Unity 2022 LTS CI leg. Same env-contract pattern as the godot job;
+  # LEGS=unity scopes the shared build_matrix.sh to the unity leg only.
+  # License: UNITY_LICENSE (.ulf contents) must be provided as a runner-level
+  # env var / Actions secret. Absent license or editor => leg SKIPs (never
+  # FAILs — missing toolchain must not block the Godot release; BUILD_MATRIX.md).
+  unity:
+    name: Unity 2022.3 LTS (EditMode tests + batchmode macOS build)
+    runs-on: [self-hosted, macOS, X64]
+    timeout-minutes: 30
+    env:
+      # Classic installer layout (2022.3.62f3 PKG installs here, not Hub);
+      # build_matrix.sh also auto-discovers Hub layouts if this moves.
+      UNITY_BIN: /Applications/Unity/Unity.app/Contents/MacOS/Unity
+      CI_COMMIT_REF_NAME: ${{ github.ref_name }}
+      CI_PIPELINE_IID: ${{ github.run_number }}
+      LEGS: unity
+      # UNITY_LICENSE comes from the runner environment (deployed via
+      # scripts_tool/unity_license.sh); not hard-coded here.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert Unity editor present
+        run: |
+          set -euo pipefail
+          # Missing editor => unity=SKIP downstream (toolchain-absent contract,
+          # BUILD_MATRIX.md); neutral exit keeps the job green, leg self-reports.
+          test -x "$UNITY_BIN" || { echo "SKIP: Unity editor missing at $UNITY_BIN"; exit 0; }
+          "$UNITY_BIN" -version
+
+      # Two gated invocations of the same contract script: EditMode tests first
+      # (results XML + passed-count gate), then -executeMethod build
+      # (exit 0 + 0 compiler errors + artifact). Any red => job red.
+      # SKIP-tolerance: license-absent/toolchain-absent => unity=SKIP must not
+      # red the job (BUILD_MATRIX.md: missing toolchain never blocks release).
+      - name: Unity EditMode tests + batchmode build (matrix contract)
+        run: |
+          set -o pipefail
+          ./build_matrix.sh 2>&1 | tee matrix_output.log
+          if grep -q '^  unity=SKIP$' matrix_output.log; then
+            echo "unity=SKIP — toolchain/license absent; not blocking (see BUILD_MATRIX.md)"
+            exit 0
+          fi
+          grep -q '^  unity=PASS$' matrix_output.log
+
+      - name: Upload Unity artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumenfall_unity_main_${{ github.run_number }}
+          path: builds/lumenfall_main_${{ github.run_number }}/unity/
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Gate summary
         if: always()
