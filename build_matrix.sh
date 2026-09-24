@@ -204,7 +204,7 @@ inject_tips_widget() { # add the Cookie Crumbs on-chain tip widget to the export
     say "  web: tips widget already present (skipping injection)"
     return 0
   fi
-  if ! perl -0pi -e 's|\t</body>|\t<div style="position:fixed;left:12px;bottom:12px;z-index:9999">\n\t\t<script src="https://altaranexus-ship-it.github.io/cookie-crumbs/embed.js" data-label="Tip the devs 🍪"></script>\n\t</div>\n\t</body>|' "$html"; then
+  if ! perl -0pi -e 's|\t</body>|\t<div style="position:fixed;left:12px;bottom:12px;z-index:9999">\n\t\t<script src="https://aaron11998.github.io/cookie-crumbs/embed.js" data-label="Tip the devs 🍪"></script>\n\t</div>\n\t</body>|' "$html"; then
     say "  web: tips widget injection failed (non-fatal)"
     return 0
   fi
