@@ -8,11 +8,11 @@ Intel Mac (AGE-143 deliverable 3). Verified 2026-09-24.
 | What | Value |
 |---|---|
 | Runner name | `prajwal-mac-selfhosted` |
-| LaunchAgent label | `actions.runner.altaranexus-ship-it-lumenfall.prajwal-mac-selfhosted` |
-| Plist | `~/Library/LaunchAgents/actions.runner.altaranexus-ship-it-lumenfall.prajwal-mac-selfhosted.plist` |
+| LaunchAgent label | `actions.runner.aaron11998-lumenfall.prajwal-mac-selfhosted` |
+| Plist | `~/Library/LaunchAgents/actions.runner.aaron11998-lumenfall.prajwal-mac-selfhosted.plist` |
 | Runner home | `~/actions-runner/` |
-| Repo | `altaranexus-ship-it/lumenfall` (PUBLIC — see Security) |
-| Labels | `self-hosted`, `macOS`, `X64`, `intel-mac`, `amd-gpu`, `godot` |
+| Repo | `aaron11998/lumenfall` (PUBLIC — see Security) |
+| Labels | `self-hosted`, `macOS`, `X64` (+ `intel-mac`, `amd-gpu`, `godot` re-addable) |
 | Workflow | `.github/workflows/build-matrix.yml` (push-to-main + dispatch only) |
 | Engine | Godot 4.5.1.stable at `~/tools/godot-4.5.1/Godot.app/Contents/MacOS/Godot` |
 | Templates | `~/Library/Application Support/Godot/export_templates/4.5.1.stable` |
@@ -39,7 +39,7 @@ launchctl bootstrap gui/$UID_N ~/Library/LaunchAgents/$LABEL.plist
 ```
 
 Verify alive: `pgrep -f 'Runner.Listener run'` should return a PID, and
-`gh api repos/altaranexus-ship-it/lumenfall/actions/runners --jq '.runners[0].status'`
+`gh api repos/aaron11998/lumenfall/actions/runners --jq '.runners[0].status'`
 should return `online`.
 
 ## Logs and diagnostics
@@ -67,10 +67,17 @@ credential perms. Run it manually:
    - After reboot the LaunchAgent should auto-start (`RunAtLoad`); if the
      Mac was renamed or the home path moved, re-run config: see Registration.
 
-2. **Jobs stuck "Queued"**:
+2. **Jobs stuck "Queued" (2026-09-25 incident: 6h queue jam)**:
    - Listener running but not picking jobs => check `~/actions-runner/.runner`
      (pool/registration intact), then restart the service.
    - Check workflow `runs-on: [self-hosted, macOS, X64]` still matches labels.
+   - **Registration vs repo mismatch** (this incident): the listener can be
+     online yet polling a DEAD pool. `cat ~/actions-runner/.runner` → if
+     `serverUrl`/pool points at the old org (altaranexus-ship-it, suspended)
+     while jobs queue on aaron11998/lumenfall, the repo has zero registered
+     runners (`gh api repos/aaron11998/lumenfall/actions/runners`). Fix =
+     full re-registration (Registration section); `svc.sh restart` will NOT
+     heal a wrong-pool registration.
 
 3. **Build matrix failing on runner but green locally**:
    - Runner runs with the GUI session env; compare `GODOT_BIN` resolution and
@@ -88,14 +95,31 @@ credential perms. Run it manually:
 
 Only if the runner shows `offline` permanently or the pool was removed:
 
+Recovered 2026-09-25 after the org suspension migration. Gotchas:
+
+- `./svc.sh uninstall` does not remove launchd bootstraps cleanly — rely on
+  `svc.sh install/start` to lay a fresh plist, and verify the label afterwards
+  (`launchctl list | grep actions.runner`).
+- `config.sh remove --unattended` FAILS when the old registration points at a
+  dead/suspended pool ("Invalid configuration provided for token"). Delete the
+  local state files instead: `.runner`, `.credentials`,
+  `.credentials_rsaparams`, **and `.runner_migrated`** (broker-migrated auth —
+  leaving this behind keeps "already configured" errors alive even after the
+  other three are gone).
+- Fresh registration token each attempt:
+  `gh api repos/aaron11998/lumenfall/actions/runners/registration-token --method POST --jq .token`
+  (needs a gh login with repo scope on aaron11998).
+
 ```bash
-launchctl bootout gui/$(id -u)/actions.runner.altaranexus-ship-it-lumenfall.prajwal-mac-selfhosted
+launchctl bootout gui/$(id -u)/actions.runner.aaron11998-lumenfall.prajwal-mac-selfhosted 2>/dev/null
 cd ~/actions-runner
-./config.sh remove --token <REMOVE_TOKEN>       # token from repo Settings → Actions → Runners
-./config.sh --url https://github.com/altaranexus-ship-it/lumenfall \
+pgrep -f 'Runner.Listener run' && pkill -f 'Runner.Listener run' && sleep 2
+rm -f .runner .credentials .credentials_rsaparams .runner_migrated
+REG_TOKEN=$(gh api repos/aaron11998/lumenfall/actions/runners/registration-token --method POST --jq .token)
+./config.sh --url https://github.com/aaron11998/lumenfall \
   --token <REG_TOKEN> --name prajwal-mac-selfhosted \
-  --labels self-hosted,macOS,X64,intel-mac,amd-gpu,godot --unattended
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/actions.runner.altaranexus-ship-it-lumenfall.prajwal-mac-selfhosted.plist
+  --labels self-hosted,macOS,X64,intel-mac,amd-gpu,godot --unattended --replace
+./svc.sh install && ./svc.sh start
 ```
 
 ## Security posture (do not regress)
