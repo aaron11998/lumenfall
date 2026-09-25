@@ -20,7 +20,7 @@ Intel Mac (AGE-143 deliverable 3). Verified 2026-09-24.
 ## Service control
 
 ```bash
-LABEL=actions.runner.altaranexus-ship-it-lumenfall.prajwal-mac-selfhosted
+LABEL=actions.runner.aaron11998-lumenfall.prajwal-mac-selfhosted
 UID_N=$(id -u)
 
 # status
@@ -49,7 +49,29 @@ should return `online`.
 | launchd stdout/stderr | `~/actions-runner/_diag/Runner_*.log`, `Worker_*.log` |
 | Job-level run logs | GitHub Actions run page (runner emits to `_diag` too) |
 | Maintenance log | `~/.cache/actions-runner-maint.log` |
+| Watchdog log | `~/.cache/runner-watchdog.log` (state: `~/.cache/runner-watchdog.state`) |
 | Rollup log | `~/.cache/lumenfall-rollup.log` |
+
+### Automated detection (AGE-161)
+
+`com.prajwal.runner-watchdog` (launchd, every 600s) runs
+`scripts_tool/actions_runner_watchdog.sh`. It catches the 2026-09-25 incident
+class within ~10 min instead of 6h, alerting to `~/.cache/lumenfall-rollup.log`
+plus a macOS notification (same-condition alerts are rate-limited to 1/hour):
+
+- **A** `gh api repos/aaron11998/lumenfall/actions/runners` `total_count == 0`
+  → ZERO registered runners.
+- **B** `~/actions-runner/.runner` `gitHubUrl` != expected repo → wrong-pool
+  registration (restart will NOT heal this; manual re-registration only).
+- **C** any queued workflow run older than 900s → queue jam.
+- **D** launchd label loaded but no `Runner.Listener run` process → listener down.
+
+Condition D self-heals with a bootout+bootstrap restart (playbook Service
+control, max 3 per 30 min). The watchdog **never** auto-runs `config.sh` —
+re-registration stays manual-only per the Registration section. It makes
+read-only `gh` calls only and never touches `.credentials` /
+`.credentials_rsaparams`; its own log self-caps at ~256K.
+
 
 `_diag` grows unbounded; `com.prajwal.actions-runner-maint` (launchd, daily
 03:15) deletes Runner_*/Worker_* logs older than 7 days and re-tightens
