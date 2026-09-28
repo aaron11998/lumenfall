@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      confirm_roblox_publish:
+        description: "Type roblox-publish-main to ALSO run the Open Cloud publish job after the Roblox leg passes"
+        required: false
+        default: ""
 
 # SECURITY: self-hosted runner on a PUBLIC repo. Only trusted code runs here:
 # push-to-main (push-restricted) + manual dispatch. pull_request is NOT wired.
@@ -25,10 +30,6 @@ jobs:
       GODOT_REQUIRED: "1"
       CI_COMMIT_REF_NAME: ${{ github.ref_name }}
       CI_PIPELINE_IID: ${{ github.run_number }}
-      # AGE-140: this job owns the godot + design-token legs only (unity job
-      # below owns unity). token_gate MUST ride along: its exports are consumed
-      # by the web/macos bundles and it is leg-gated like the engines.
-      LEGS: godot,token_gate
     steps:
       - uses: actions/checkout@v4
 
@@ -61,58 +62,83 @@ jobs:
         if: always()
         run: grep -E 'BUILD_MATRIX_RESULT|=PASS$|=FAIL$|=SKIP$' matrix_output.log | sort -u || true
 
-  # AGE-140: Unity 2022 LTS CI leg. Same env-contract pattern as the godot job;
-  # LEGS=unity scopes the shared build_matrix.sh to the unity leg only.
-  # License: UNITY_LICENSE (.ulf contents) must be provided as a runner-level
-  # env var / Actions secret. Absent license or editor => leg SKIPs (never
-  # FAILs — missing toolchain must not block the Godot release; BUILD_MATRIX.md).
-  unity:
-    name: Unity 2022.3 LTS (EditMode tests + batchmode macOS build)
+  roblox:
+    name: Roblox leg (rojo build, luau type-check, TestEZ)
     runs-on: [self-hosted, macOS, X64]
-    timeout-minutes: 30
+    timeout-minutes: 5
     env:
-      # Classic installer layout (2022.3.62f3 PKG installs here, not Hub);
-      # build_matrix.sh also auto-discovers Hub layouts if this moves.
-      UNITY_BIN: /Applications/Unity/Unity.app/Contents/MacOS/Unity
       CI_COMMIT_REF_NAME: ${{ github.ref_name }}
       CI_PIPELINE_IID: ${{ github.run_number }}
-      LEGS: unity
-      # UNITY_LICENSE comes from the runner environment (deployed via
-      # scripts_tool/unity_license.sh); not hard-coded here.
+      LEGS: roblox
     steps:
       - uses: actions/checkout@v4
 
-      - name: Assert Unity editor present
-        run: |
-          set -euo pipefail
-          # Missing editor => unity=SKIP downstream (toolchain-absent contract,
-          # BUILD_MATRIX.md); neutral exit keeps the job green, leg self-reports.
-          test -x "$UNITY_BIN" || { echo "SKIP: Unity editor missing at $UNITY_BIN"; exit 0; }
-          "$UNITY_BIN" -version
+      # Lockstep toolchain (rojo 7.7.0 / lune 0.10.5 / luau-lsp 1.70.0 — see
+      # docs/ROBLOX_CI.md). A cold runner downloads the pinned archives once
+      # and asserts versions; a warm runner verifies in milliseconds.
+      - name: Toolchain lockstep (pinned rojo/lune/luau-lsp)
+        run: ./scripts_tool/roblox_ci/toolchain_lockstep.sh
 
-      # Two gated invocations of the same contract script: EditMode tests first
-      # (results XML + passed-count gate), then -executeMethod build
-      # (exit 0 + 0 compiler errors + artifact). Any red => job red.
-      # SKIP-tolerance: license-absent/toolchain-absent => unity=SKIP must not
-      # red the job (BUILD_MATRIX.md: missing toolchain never blocks release).
-      - name: Unity EditMode tests + batchmode build (matrix contract)
+      # rojo build -> place file; luau-lsp analyze (strict, roblox defs +
+      # rojo sourcemap) -> exit 0 gate; lune TestEZ suite -> PASS marker.
+      # Any red step exits nonzero and FAILs the leg.
+      - name: Roblox leg (build + analyze + TestEZ)
         run: |
           set -o pipefail
-          ./build_matrix.sh 2>&1 | tee matrix_output.log
-          if grep -q '^  unity=SKIP$' matrix_output.log; then
-            echo "unity=SKIP — toolchain/license absent; not blocking (see BUILD_MATRIX.md)"
-            exit 0
-          fi
-          grep -q '^  unity=PASS$' matrix_output.log
+          LEGS=roblox ./build_matrix.sh 2>&1 | tee matrix_roblox.log
 
-      - name: Upload Unity artifacts
+      - name: Upload roblox artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: lumenfall_unity_main_${{ github.run_number }}
-          path: builds/lumenfall_main_${{ github.run_number }}/unity/
+          name: lumenfall_roblox_main_${{ github.run_number }}
+          path: builds/lumenfall_main_${{ github.run_number }}/
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Gate summary
         if: always()
-        run: grep -E 'BUILD_MATRIX_RESULT|=PASS$|=FAIL$|=SKIP$' matrix_output.log | sort -u || true
+        run: grep -E 'BUILD_MATRIX_RESULT|roblox=|roblox_leg=' matrix_roblox.log | sort -u || true
+
+  # ------------------------------------------------------------------
+  # DISPATCH-ONLY publish gate (AGE-142 deliverable 4).
+  # Never runs on push: this job mutates LIVE place state via Open Cloud.
+  # Two independent gates must both be true:
+  #   1. event is workflow_dispatch (never push/PR)
+  #   2. input confirm_roblox_publish == "roblox-publish-main" (explicit)
+  # Plus the roblox leg must be green (needs: roblox).
+  # Key handling: ROBLOX_OPEN_CLOUD_API_KEY secret is consumed by
+  # publish_place.luau from env and never echoed; logs carry statuses only.
+  # ------------------------------------------------------------------
+  roblox-publish:
+    name: Roblox Open Cloud publish (dispatch-only, mutates live place)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.confirm_roblox_publish == 'roblox-publish-main'
+    needs: roblox
+    runs-on: [self-hosted, macOS, X64]
+    timeout-minutes: 5
+    environment: roblox-production
+    env:
+      ROBLOX_REF: ${{ github.ref_name }}
+      ROBLOX_BUILDNUM: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain lockstep (pinned rojo/lune/luau-lsp)
+        run: ./scripts_tool/roblox_ci/toolchain_lockstep.sh
+
+      # Rebuild before publish: guarantees the uploaded place is exactly the
+      # artifact this run verified green (no stale-artifact publishes).
+      - name: Roblox leg (build the place to publish)
+        run: |
+          set -o pipefail
+          LEGS=roblox ./build_matrix.sh 2>&1 | tee matrix_roblox.log
+
+      - name: Publish via Open Cloud
+        env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
+          ROBLOX_PLACE_ID: ${{ vars.ROBLOX_PLACE_ID }}
+          ROBLOX_UNIVERSE_ID: ${{ vars.ROBLOX_UNIVERSE_ID }}
+        run: |
+          ./scripts_tool/roblox_ci/tools/lune run scripts_tool/roblox_ci/publish_place.luau 2>&1 | tee publish.log
+          grep -q '^PUBLISH_RESULT=OK' publish.log

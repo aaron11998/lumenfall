@@ -490,12 +490,38 @@ leg_unreal() {
 
 leg_roblox() {
   say "== [roblox] leg =="
-  if command -v rojo >/dev/null 2>&1 && command -v lune >/dev/null 2>&1; then
-    say "  SKIP: rojo+lune present but place scaffold not yet provided (owner: Roblox Systems Scripter)"
-  else
-    say "  SKIP: toolchain absent (unblock: AGE-10 CI runners / Roblox Systems Scripter)"
+  # Scaffold + toolchain live in scripts_tool/roblox_ci (AGE-142). Lockstep
+  # installer fetches pinned rojo/lune/luau-lsp if absent (SKIP vs FAIL
+  # discipline: missing toolchain on a runner = SKIP, red step = FAIL).
+  if [ ! -f "$PROJ/scripts_tool/roblox_ci/roblox_leg.sh" ]; then
+    say "  SKIP: roblox leg driver missing (unblock: Roblox Systems Scripter)"
+    verdict roblox SKIP
+    return
   fi
-  verdict roblox SKIP
+  if [ ! -x "$PROJ/scripts_tool/roblox_ci/tools/rojo" ]; then
+    # Attempt lockstep install once; if the network is unavailable we SKIP.
+    if ! bash "$PROJ/scripts_tool/roblox_ci/toolchain_lockstep.sh" >"$LOGS/roblox_lockstep.log" 2>&1; then
+      say "  SKIP: toolchain absent and lockstep install failed ($LOGS/roblox_lockstep.log)"
+      verdict roblox SKIP
+      return
+    fi
+  fi
+  phase_start
+  if ROBLOX_OUT_DIR="$OUT/roblox" \
+     ROBLOX_LOGS_DIR="$LOGS" \
+     ROBLOX_REF="$REF_NAME" \
+     ROBLOX_BUILDNUM="$BUILDNUM" \
+     bash "$PROJ/scripts_tool/roblox_ci/roblox_leg.sh" >>"$LOGS/roblox_leg.log" 2>&1; then
+    phase_end "roblox_leg"
+    local place
+    place="$(find "$OUT/roblox" -name '*.rbxlx' -print -quit 2>/dev/null)"
+    say "  roblox: place $(basename "${place:-<none>}") built; type-check clean; TestEZ PASS"
+    verdict roblox PASS
+  else
+    phase_end "roblox_leg"
+    gate_fail roblox "roblox leg failed (rojo build / luau analyze / TestEZ — $LOGS/roblox_leg.log):"
+    grep -E 'FAIL|TypeError|TESTEZ_RESULT|error' "$LOGS/roblox_leg.log" | head -6 | while IFS= read -r l; do say "    $l"; done
+  fi
 }
 
 # ---------------------------------------------------------------- summary

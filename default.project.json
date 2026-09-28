@@ -1,0 +1,40 @@
+{
+    "name": "lumenfall",
+    "tree": {
+        "$className": "DataModel",
+        "ReplicatedStorage": {
+            "Shared": {
+                "$path": "roblox/src/shared"
+            },
+            "Packages": {
+                "$className": "Folder",
+                "TestEZ": {
+                    "$path": "roblox/testez"
+                }
+            }
+        },
+        "ServerScriptService": {
+            "Server": {
+                "$path": "roblox/src/server"
+            }
+        },
+        "StarterPlayer": {
+            "StarterPlayerScripts": {
+                "Client": {
+                    "$path": "roblox/src/client"
+                }
+            }
+        },
+        "Workspace": {
+            "$properties": {
+                "FilteringEnabled": true
+            }
+        },
+        "Lighting": {
+            "$properties": {
+                "Brightness": 1.5,
+                "GlobalShadows": true
+            }
+        }
+    }
+}
