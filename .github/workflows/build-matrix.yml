@@ -31,7 +31,7 @@ jobs:
       CI_COMMIT_REF_NAME: ${{ github.ref_name }}
       CI_PIPELINE_IID: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Assert engine/template pairing
         run: |
@@ -71,7 +71,7 @@ jobs:
       CI_PIPELINE_IID: ${{ github.run_number }}
       LEGS: roblox
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Lockstep toolchain (rojo 7.7.0 / lune 0.10.5 / luau-lsp 1.70.0 — see
       # docs/ROBLOX_CI.md). A cold runner downloads the pinned archives once
@@ -122,7 +122,7 @@ jobs:
       ROBLOX_REF: ${{ github.ref_name }}
       ROBLOX_BUILDNUM: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Toolchain lockstep (pinned rojo/lune/luau-lsp)
         run: ./scripts_tool/roblox_ci/toolchain_lockstep.sh
