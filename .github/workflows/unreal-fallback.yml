@@ -45,7 +45,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Preflight — engine source must be configured (fail loudly, never fake-green)
         run: |
