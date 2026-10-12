@@ -5,3 +5,5 @@ builds/
 *.tmp
 __pycache__/
 *.pyc
+*.alf
+*.ulp
