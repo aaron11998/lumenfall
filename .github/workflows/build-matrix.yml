@@ -51,7 +51,7 @@ jobs:
           ./build_matrix.sh 2>&1 | tee matrix_output.log
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lumenfall_main_${{ github.run_number }}
           path: builds/lumenfall_main_${{ github.run_number }}/
@@ -88,7 +88,7 @@ jobs:
           LEGS=roblox ./build_matrix.sh 2>&1 | tee matrix_roblox.log
 
       - name: Upload roblox artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lumenfall_roblox_main_${{ github.run_number }}
           path: builds/lumenfall_main_${{ github.run_number }}/
